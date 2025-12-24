@@ -16,7 +16,7 @@
 #include <stdbool.h>
 
 #define MAX_THREADS 64
-#define DEFAULT_STACK_SIZE (64 * 1024)
+#define DEFAULT_STACK_SIZE 65536
 
 typedef int uthread;
 
@@ -28,6 +28,7 @@ struct thread {
     void* retval;
     bool terminated;
     uthread join_id;
+    bool sleeping;
 };
 
 

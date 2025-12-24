@@ -32,12 +32,22 @@ int main() {
     }
     printf("Created thread2.\n");
 
-    uthread_join(thread1, NULL);
+    err = uthread_join(thread1, NULL);
+    if (err) {
+        printf("Error joining thread1.\n");
+        return 1;
+    }
+    printf("Joined thread1.\n");
+
     uthread_join(thread2, NULL);
+    if (err) {
+        printf("Error joining thread2.\n");
+        return 1;
+    }
+    printf("Joined thread2.\n");
 
     free(arg1);
     free(arg2);
 
-    printf("Sucessfully joined both threads.\n");
     return 0;
 }

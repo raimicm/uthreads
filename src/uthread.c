@@ -7,6 +7,8 @@
 #include <stdbool.h>
 #include <assert.h>
 
+#define UTHREAD_DETACHED -2
+
 bool initialized = false;
 sched_policy scheduling_policy = FIFO;
 size_t stack_size = DEFAULT_STACK_SIZE;
@@ -15,11 +17,11 @@ struct thread *threads[MAX_THREADS];
 unsigned last_id = 0;
 unsigned thread_count = 0;
 
-uthread curthread_id;
-queue *runqueue;
+uthread cur_utid;
+queue runqueue;
 
 void thread_execute() {
-    struct thread *curthread = threads[curthread_id];
+    struct thread *curthread = threads[cur_utid];
 
     // call func(args)
     void* retval = curthread->func(curthread->args);
@@ -51,37 +53,42 @@ static void* thread_setup_stack(void *stack_bottom) {
     return (void*) sp;
 }
 
-// static void thread_switch() {
-//     uthread old_id = curthread_id;
+// static void thread_yield() {
+//     uthread old_id = cur_utid;
     
 //     assert(queue_size(runqueue) > 0);
 
-//     curthread_id = queue_dequeue(runqueue);
+//     cur_utid = queue_dequeue(runqueue);
 //     queue_enqueue(runqueue, old_id);
 
-//     context_switch(&threads[old_id]->sp, threads[curthread_id]->sp);
+//     context_switch(&threads[old_id]->sp, threads[cur_utid]->sp);
 // }
 
 static void thread_sleep() {
-    uthread old_id = curthread_id;
-    assert(queue_size(runqueue) > 0);
-    curthread_id = queue_dequeue(runqueue);
-    context_switch(&threads[old_id]->sp, threads[curthread_id]->sp);
+    uthread old_id = cur_utid;
+    assert(!threads[old_id]->sleeping);
+    threads[old_id]->sleeping = true;
+
+    cur_utid = queue_dequeue(runqueue);
+    assert(cur_utid >= 0);
+    threads[cur_utid]->sleeping = false;
+
+    context_switch(&threads[old_id]->sp, threads[cur_utid]->sp);
 }
 
-static void thread_wake(uthread thread) {
-    int result = queue_enqueue(runqueue, thread);
-    if (result)
-        return; // Queue is full. Should not get here.
+static void thread_wake(uthread utid) {
+    assert(threads[utid]->sleeping);
+    threads[utid]->sleeping = false;
+    assert(!queue_enqueue(runqueue, utid));
 }
 
-static void thread_destroy(uthread thread) {
-    assert(thread != 0); // should not be destroying main thread
-    assert(thread != curthread_id); // should not be destroying current thread
+static void thread_destroy(uthread utid) {
+    assert(utid != 0); // should not be destroying main thread
+    assert(utid != cur_utid); // should not be destroying current thread
 
-    free(threads[thread]->stack_end);
-    free(threads[thread]);
-    threads[thread] = NULL;
+    free(threads[utid]->stack_end);
+    free(threads[utid]);
+    threads[utid] = NULL;
     thread_count--;
 }
 
@@ -100,7 +107,7 @@ void uthread_init(sched_policy policy, size_t stack_sz) {
     switch(policy) {
         case FIFO:
             runqueue = queue_create(MAX_THREADS);
-            curthread_id = 0; // main thread is currently running
+            cur_utid = 0; // main thread is currently running
             
         default:
             // not yet implemented
@@ -130,9 +137,14 @@ int uthread_create(uthread *thread, void* (*func)(void*), void *args) {
         return -1; // out of memory
     }
 
+    t->stack_end = stack; 
     t->func = func;
     t->args = args;
-    t->stack_end = stack; 
+    t->retval = NULL;
+    t->terminated = false;
+    t->join_id = -1;
+    t->sleeping = true;
+
     void *stack_bottom = (void*) ((uintptr_t) t->stack_end + stack_size);
     t->sp = thread_setup_stack(stack_bottom);
 
@@ -152,36 +164,49 @@ int uthread_create(uthread *thread, void* (*func)(void*), void *args) {
     return 0;
 }
 
-int uthread_join(uthread thread, void **retval) {
-    struct thread *joining_thread = threads[thread];
-    if (joining_thread == NULL)
+int uthread_join(uthread utid, void **retval) {
+    if (utid < 0 || utid >= MAX_THREADS)
         return -1; // invalid id
 
-    joining_thread->join_id = curthread_id; 
+    struct thread *t = threads[utid];
+    if (t == NULL)
+        return -1; // invalid id
+
+    if (t->join_id == UTHREAD_DETACHED || t->join_id >= 0)
+        return -1; // thread is detached or already marked to join
+
+    t->join_id = cur_utid; 
     
     // block if joining thread has not terminated yet
-    if (!joining_thread->terminated) {
+    if (!t->terminated) {
         thread_sleep();
     }
-    assert(joining_thread->terminated);
+    assert(t->terminated);
+    assert(t->sleeping);
 
     // give return value of joining thread if not NULL
     if (retval != NULL)
-        *retval = joining_thread->retval;
+        *retval = t->retval;
 
     // cleanup joining thread
-    thread_destroy(thread);
+    thread_destroy(utid);
 
     return 0;
 }
 
 void uthread_exit(void *retval) {
-    struct thread *t = threads[curthread_id];
+    struct thread *t = threads[cur_utid];
 
-    thread_wake(t->join_id);
-
-    t->retval = retval;
-    t->terminated = true;
-
-    thread_sleep();
+    if (t->join_id == UTHREAD_DETACHED) {
+        threads[cur_utid] = NULL;
+    } else if (t->join_id == -1) {
+        t->retval = retval;
+        t->terminated = true;
+        thread_sleep();
+    } else {
+        thread_wake(t->join_id);
+        t->retval = retval;
+        t->terminated = true;
+        thread_sleep();
+    }
 }
