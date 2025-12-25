@@ -1,11 +1,14 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <uthread.h>
 
-void* print_int(void* args) {
+void* print_int(void *args) {
     int n = *((int*) args);
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < 5; i++) {
         printf("%d\n", n);
+        usleep(100000);
+    }
     return NULL;
 }
 

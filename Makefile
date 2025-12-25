@@ -19,7 +19,7 @@ library: lib/libuthreads.a
 
 all: lib examples
 
-examples: join_example
+examples: join_example detach_example
 
 lib:
 	@mkdir -p lib 

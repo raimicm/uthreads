@@ -20,17 +20,22 @@
 
 typedef int uthread;
 
+typedef enum {
+    RDY, // Ready
+    RUN, // Running
+    SLP, // Sleeping
+    ZMB  // Zombie 
+} thread_state;
+
 struct thread {
     void* stack_end;
     void* sp;
     void* (*func)(void*);
     void* args;
     void* retval;
-    bool terminated;
+    thread_state state;
     uthread join_id;
-    bool sleeping;
 };
-
 
 typedef enum {
     FIFO, // First-In-First-Out
@@ -45,5 +50,7 @@ void uthread_init(sched_policy policy, size_t stack_sz);
 int uthread_create(uthread *thread, void* (*func)(void*), void *args);
 int uthread_join(uthread thread, void **retval);
 void uthread_exit(void *retval);
+int uthread_detach(uthread thread);
+void uthread_yield();
 
 #endif
