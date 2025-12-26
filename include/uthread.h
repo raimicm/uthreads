@@ -18,6 +18,8 @@
 #define MAX_THREADS 64
 #define DEFAULT_STACK_SIZE 65536
 #define DEFAULT_SCHEDULING_POLICY FIFO
+#define MAX_PRIORITY 20
+#define MIN_PRIORITY -20
 
 typedef int uthread;
 
@@ -49,11 +51,13 @@ void uthread_init(sched_policy policy, size_t stack_sz);
  *               created uthread
  *     - func: function for uthread to thread
  *     - args: pointer to arguments for func
+ *     - priority: priority level for this uthread. Only necessary for priority
+ *                 scheduling (PS) and completely fair scheduling (CFS).
  * 
  * Returns:
  *     - 0 if successful, -1 if error occured
  */
-int uthread_create(uthread *thread, void* (*func)(void*), void *args);
+int uthread_create(uthread *thread, void* (*func)(void*), void *args, int priority);
 
 /*
  * Joins a uthread to calling uthread. This collects its return value and releases 

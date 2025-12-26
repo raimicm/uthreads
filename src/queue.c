@@ -144,7 +144,7 @@ static void heapify_up(priority_queue pq) {
     int idx = pq->size - 1;
     while (idx > 0) {
         int parent_idx = parent(idx);
-        if (pq->arr[parent_idx].priority > pq->arr[idx].priority)
+        if (pq->arr[parent_idx].priority >= pq->arr[idx].priority)
             break;
 
         swap_indeces(pq, idx, parent_idx);

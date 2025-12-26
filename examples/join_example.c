@@ -21,14 +21,14 @@ int main() {
     void *arg2 = malloc(sizeof(int));
     *((int*) arg2) = 2;
 
-    int err = uthread_create(&thread1, print_int, arg1);
+    int err = uthread_create(&thread1, print_int, arg1, 0);
     if (err) {
         printf("Error creating thread1.\n");
         return 1;
     }
     printf("Created thread1.\n");
 
-    err = uthread_create(&thread2, print_int, arg2);
+    err = uthread_create(&thread2, print_int, arg2, 0);
     if (err) {
         printf("Error creating thread2.\n");
         return 1;

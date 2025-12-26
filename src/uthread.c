@@ -23,6 +23,7 @@ struct thread {
     void* args;
     void* retval;
     thread_state state;
+    int priority;
     uthread join_id;
 };
 
@@ -35,7 +36,8 @@ unsigned last_id = 0;
 unsigned thread_count = 0;
 
 uthread cur_utid;
-queue runqueue;
+queue fifo_runqueue;
+priority_queue ps_runqueue;
 queue zombies;
 
 void thread_execute() {
@@ -76,24 +78,50 @@ static void thread_switch(thread_state state) {
     assert(threads[cur_utid]->state == RUN);
     uthread old_id = cur_utid;
 
-    cur_utid = queue_dequeue(runqueue);
-    assert(cur_utid >= 0);
-    threads[cur_utid]->state = RUN;
+    switch (scheduling_policy) {
+        case FIFO:
+            cur_utid = queue_dequeue(fifo_runqueue);
+            assert(cur_utid >= 0);
+            threads[cur_utid]->state = RUN;
 
-    if (state == RDY)
-        queue_enqueue(runqueue, old_id);
-    threads[old_id]->state = state;
+            if (state == RDY)
+                queue_enqueue(fifo_runqueue, old_id);
+            threads[old_id]->state = state;
+            break;
+        case PS:
+            cur_utid = priority_queue_dequeue(ps_runqueue);
+            assert(cur_utid >= 0);
+            threads[cur_utid]->state = RUN;
+
+            if (state == RDY)
+                priority_queue_enqueue(ps_runqueue, old_id, threads[old_id]->priority);
+            threads[old_id]->state = state;
+            break;
+        default:
+            // not yet implemented
+    }
 
     context_switch(&threads[old_id]->sp, threads[cur_utid]->sp);
 }
 
 static void thread_wake(uthread utid) {
-    assert(threads[utid]->state == SLP);
-    threads[utid]->state = RDY;
-    assert(!queue_enqueue(runqueue, utid));
+    struct thread *t = threads[utid];
+    assert(t->state == SLP);
+    t->state = RDY;
+    switch (scheduling_policy) {
+        case FIFO:
+            assert(!queue_enqueue(fifo_runqueue, utid));
+            break;
+        case PS:
+            assert(!priority_queue_enqueue(ps_runqueue, utid, t->priority));
+            break;
+        default:
+            // not yet implemented
+
+    }
 }
 
-static struct thread *thread_create(void* (*func)(void*), void* args) {
+static struct thread *thread_create(void* (*func)(void*), void* args, int priority) {
     struct thread *t = malloc(sizeof(struct thread));
     if (t == NULL) 
         return NULL; // out of memory
@@ -109,6 +137,7 @@ static struct thread *thread_create(void* (*func)(void*), void* args) {
     t->args = args;
     t->retval = NULL;
     t->state = SLP;
+    t->priority = priority;
     t->join_id = -1;
 
     void *stack_bottom = (void*) ((uintptr_t) t->stack_end + stack_size);
@@ -150,6 +179,20 @@ void uthread_init(sched_policy policy, size_t stack_sz) {
     initialized = true;
 
     stack_size = stack_sz;
+    scheduling_policy = policy;
+
+    switch(policy) {
+        case FIFO:
+            fifo_runqueue = queue_create(MAX_THREADS);
+            break;
+        case PS:
+            ps_runqueue = priority_queue_create(MAX_THREADS);
+            break;
+        default:
+            // not yet implemented
+    }
+
+    zombies = queue_create(MAX_THREADS);
 
     struct thread *main_thread = malloc(sizeof(struct thread));
     main_thread->stack_end = NULL;
@@ -161,22 +204,14 @@ void uthread_init(sched_policy policy, size_t stack_sz) {
     threads[0] = main_thread;
     thread_count++;
 
-    struct thread *reaper_thread = thread_create(thread_reaper, NULL);
+    struct thread *reaper_thread = thread_create(thread_reaper, NULL, MIN_PRIORITY);
     threads[MAX_THREADS] = reaper_thread;
     thread_count++;
 
-    zombies = queue_create(MAX_THREADS);
-
-    switch(policy) {
-        case FIFO:
-            runqueue = queue_create(MAX_THREADS);
-            thread_wake(MAX_THREADS); // add reaper thread to runqueue
-        default:
-            // not yet implemented
-    }
+    thread_wake(MAX_THREADS); // add reaper thread to runqueue
 }
 
-int uthread_create(uthread *thread, void* (*func)(void*), void *args) {
+int uthread_create(uthread *thread, void* (*func)(void*), void *args, int priority) {
     if (!initialized)
         uthread_init(FIFO, DEFAULT_STACK_SIZE);
 
@@ -186,7 +221,10 @@ int uthread_create(uthread *thread, void* (*func)(void*), void *args) {
     if (thread_count + 1 > MAX_THREADS)
         return -1; // too many threads
 
-    struct thread *t = thread_create(func, args);
+    if (priority > MAX_PRIORITY || priority < MIN_PRIORITY)
+        return -1; // invalid priority
+
+    struct thread *t = thread_create(func, args, priority);
     if (t == NULL)
         return -1; // out of memory
 

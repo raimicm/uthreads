@@ -6,8 +6,9 @@
 void* print_hello(void *args) {
     (void) args;
     for (int i = 0; i < 10; i++) {
-        printf("hello\n");
-        usleep(100000);
+        printf("hello");
+        usleep(50000);
+        uthread_yield();
     }
     return NULL;
 }
@@ -15,8 +16,9 @@ void* print_hello(void *args) {
 void* print_world(void *args) {
     (void) args;
     for (int i = 0; i < 10; i++) {
-        printf("world\n");
-        usleep(100000);
+        printf(" world\n");
+        usleep(50000);
+        uthread_yield();
     }
     return NULL;
 }
@@ -24,19 +26,19 @@ void* print_world(void *args) {
 int main() {
     uthread thread1, thread2;
 
-    int err = uthread_create(&thread1, print_hello, NULL);
+    uthread_init(PS, DEFAULT_STACK_SIZE);
+
+    int err = uthread_create(&thread1, print_hello, NULL, 2);
     if (err) {
         printf("Error creating thread1.\n");
         return 1;
     }
-    printf("Created thread1.\n");
 
-    err = uthread_create(&thread2, print_world, NULL);
+    err = uthread_create(&thread2, print_world, NULL, 1);
     if (err) {
         printf("Error creating thread2.\n");
         return 1;
     }
-    printf("Created thread2.\n");
 
     uthread_yield();
 
