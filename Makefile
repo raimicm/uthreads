@@ -30,7 +30,7 @@ build:
 %: examples/%.c lib/lib$(LIB).a | build
 	$(CC) $(CFLAGS) $< -Llib -l$(LIB) -o build/$@
 
-lib/libuthreads.a: build/uthread.o build/context_switch.o build/queue.o | lib build
+lib/libuthreads.a: build/uthread.o build/context_switch.o build/thread_queue.o | lib build
 	$(AR) $(ARFLAGS) $@ $^
 
 build/uthread.o: src/uthread.c include/uthread.h | build
@@ -39,7 +39,7 @@ build/uthread.o: src/uthread.c include/uthread.h | build
 build/context_switch.o: src/context_switch.S include/context_switch.h | build
 	$(CC) $(CFLAGS) -c $< -o $@
 
-build/queue.o: src/queue.c include/queue.h | build
+build/thread_queue.o: src/thread_queue.c include/thread_queue.h | build
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:

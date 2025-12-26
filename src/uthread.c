@@ -1,6 +1,6 @@
 #include "uthread.h"
 #include "context_switch.h"
-#include "queue.h"
+#include "thread_queue.h"
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -8,24 +8,6 @@
 #include <assert.h>
 
 #define UTHREAD_DETACHED -2
-
-typedef enum {
-    RDY, // Ready
-    RUN, // Running
-    SLP, // Sleeping
-    ZMB  // Zombie 
-} thread_state;
-
-struct thread {
-    void* stack_end;
-    void* sp;
-    void* (*func)(void*);
-    void* args;
-    void* retval;
-    thread_state state;
-    int priority;
-    uthread join_id;
-};
 
 bool initialized = false;
 sched_policy scheduling_policy = DEFAULT_SCHEDULING_POLICY;
@@ -35,14 +17,13 @@ struct thread *threads[MAX_THREADS + 1];
 unsigned last_id = 0;
 unsigned thread_count = 0;
 
-uthread cur_utid;
-queue fifo_runqueue;
-priority_queue ps_runqueue;
-queue zombies;
+thread_queue fifo_runqueue;
+thread_pqueue ps_runqueue;
+thread_queue zombies;
+
+struct thread *curthread;
 
 void thread_execute() {
-    struct thread *curthread = threads[cur_utid];
-
     // call func(args)
     void* retval = curthread->func(curthread->args);
 
@@ -75,45 +56,44 @@ static void* thread_setup_stack(void *stack_bottom) {
 
 static void thread_switch(thread_state state) {
     assert(state != RUN);
-    assert(threads[cur_utid]->state == RUN);
-    uthread old_id = cur_utid;
+    assert(curthread->state == RUN);
+    struct thread* oldthread = curthread;
 
     switch (scheduling_policy) {
         case FIFO:
-            cur_utid = queue_dequeue(fifo_runqueue);
-            assert(cur_utid >= 0);
-            threads[cur_utid]->state = RUN;
+            curthread = thread_queue_dequeue(fifo_runqueue);
+            assert(curthread != NULL);
+            curthread->state = RUN;
 
             if (state == RDY)
-                queue_enqueue(fifo_runqueue, old_id);
-            threads[old_id]->state = state;
+               thread_queue_enqueue(fifo_runqueue, oldthread);
+            oldthread->state = state;
             break;
         case PS:
-            cur_utid = priority_queue_dequeue(ps_runqueue);
-            assert(cur_utid >= 0);
-            threads[cur_utid]->state = RUN;
+            curthread = thread_pqueue_dequeue(ps_runqueue);
+            assert(curthread != NULL);
+            curthread->state = RUN;
 
             if (state == RDY)
-                priority_queue_enqueue(ps_runqueue, old_id, threads[old_id]->priority);
-            threads[old_id]->state = state;
+                thread_pqueue_enqueue(ps_runqueue, oldthread);
+            oldthread->state = state;
             break;
         default:
             // not yet implemented
     }
 
-    context_switch(&threads[old_id]->sp, threads[cur_utid]->sp);
+    context_switch(&oldthread->sp, curthread->sp);
 }
 
-static void thread_wake(uthread utid) {
-    struct thread *t = threads[utid];
+static void thread_wake(struct thread* t) {
     assert(t->state == SLP);
     t->state = RDY;
     switch (scheduling_policy) {
         case FIFO:
-            assert(!queue_enqueue(fifo_runqueue, utid));
+            assert(!thread_queue_enqueue(fifo_runqueue, t));
             break;
         case PS:
-            assert(!priority_queue_enqueue(ps_runqueue, utid, t->priority));
+            assert(!thread_pqueue_enqueue(ps_runqueue, t));
             break;
         default:
             // not yet implemented
@@ -121,7 +101,7 @@ static void thread_wake(uthread utid) {
     }
 }
 
-static struct thread *thread_create(void* (*func)(void*), void* args, int priority) {
+static struct thread *thread_create(uthread id, void* (*func)(void*), void* args, int priority) {
     struct thread *t = malloc(sizeof(struct thread));
     if (t == NULL) 
         return NULL; // out of memory
@@ -133,6 +113,7 @@ static struct thread *thread_create(void* (*func)(void*), void* args, int priori
         return NULL; // out of memory
     }
 
+    t->id = id;
     t->func = func;
     t->args = args;
     t->retval = NULL;
@@ -146,27 +127,26 @@ static struct thread *thread_create(void* (*func)(void*), void* args, int priori
     return t;
 }
 
-static void thread_destroy(uthread utid) {
-    assert(utid != 0); // should not be destroying main thread
-    assert(utid != cur_utid); // should not be destroying current thread
-
-    struct thread *t = threads[utid];
+static void thread_destroy(struct thread *t) {
+    assert(t->id != 0); // should not be destroying main thread
+    assert(t != curthread); // should not be destroying current thread
     assert(t->state == ZMB);
+
+    threads[t->id] = NULL;
 
     free(t->stack_end);
     free(t);
 
-    threads[utid] = NULL;
     thread_count--;
 }
 
 void* thread_reaper(void *args) {
     (void) args;
     for (;;) {
-        int zombie_count = queue_size(zombies);
+        int zombie_count = thread_queue_size(zombies);
         for (int i = 0; i < zombie_count; i++) {
-            uthread utid = queue_dequeue(zombies);
-            thread_destroy(utid);
+            struct thread* t = thread_queue_dequeue(zombies);
+            thread_destroy(t);
         }
         thread_switch(RDY);
     }
@@ -183,32 +163,33 @@ void uthread_init(sched_policy policy, size_t stack_sz) {
 
     switch(policy) {
         case FIFO:
-            fifo_runqueue = queue_create(MAX_THREADS);
+            fifo_runqueue = thread_queue_create(MAX_THREADS);
             break;
         case PS:
-            ps_runqueue = priority_queue_create(MAX_THREADS);
+            ps_runqueue = thread_pqueue_create(MAX_THREADS);
             break;
         default:
             // not yet implemented
     }
 
-    zombies = queue_create(MAX_THREADS);
+    zombies = thread_queue_create(MAX_THREADS);
 
     struct thread *main_thread = malloc(sizeof(struct thread));
+    main_thread->id = 0;
     main_thread->stack_end = NULL;
     main_thread->sp = NULL;
     main_thread->state = RUN;
     main_thread->join_id = -1;
 
-    cur_utid = 0; // main thread is currently running
+    curthread = main_thread; // main thread is currently running
     threads[0] = main_thread;
     thread_count++;
 
-    struct thread *reaper_thread = thread_create(thread_reaper, NULL, MIN_PRIORITY);
+    struct thread *reaper_thread = thread_create(MAX_THREADS, thread_reaper, NULL, MIN_PRIORITY);
     threads[MAX_THREADS] = reaper_thread;
     thread_count++;
 
-    thread_wake(MAX_THREADS); // add reaper thread to runqueue
+    thread_wake(reaper_thread); // add reaper thread to runqueue
 }
 
 int uthread_create(uthread *thread, void* (*func)(void*), void *args, int priority) {
@@ -224,22 +205,23 @@ int uthread_create(uthread *thread, void* (*func)(void*), void *args, int priori
     if (priority > MAX_PRIORITY || priority < MIN_PRIORITY)
         return -1; // invalid priority
 
-    struct thread *t = thread_create(func, args, priority);
-    if (t == NULL)
-        return -1; // out of memory
-
     // add to threads array
     while (threads[last_id] != NULL) {
         last_id++;
         if (last_id == MAX_THREADS)
             last_id = 1;
     }
+
+    struct thread *t = thread_create(last_id, func, args, priority);
+    if (t == NULL)
+        return -1; // out of memory
+
     threads[last_id] = t;
     thread_count++;
     *thread = last_id;
 
     // add thread to runqeue
-    thread_wake(last_id);
+    thread_wake(t);
 
     return 0;
 }
@@ -255,7 +237,7 @@ int uthread_join(uthread utid, void **retval) {
     if (t->join_id == UTHREAD_DETACHED || t->join_id >= 0)
         return -1; // thread is detached or already marked to join
 
-    t->join_id = cur_utid; 
+    t->join_id = curthread->id; 
     
     // block if joining thread has not terminated yet
     if (t->state != ZMB) {
@@ -268,25 +250,23 @@ int uthread_join(uthread utid, void **retval) {
         *retval = t->retval;
 
     // cleanup joining thread
-    thread_destroy(utid);
+    thread_destroy(t);
 
     return 0;
 }
 
 void uthread_exit(void *retval) {
-    if (cur_utid == 0)
+    if (curthread->id == 0)
         exit(0); // terminate process if main thread calls uthread_exit
 
-    struct thread *t = threads[cur_utid];
-
-    if (t->join_id == UTHREAD_DETACHED) {
-        threads[cur_utid] = NULL;
-        queue_enqueue(zombies, cur_utid);
-    } else if (t->join_id == -1) {
-        t->retval = retval;
+    if (curthread->join_id == UTHREAD_DETACHED) {
+        threads[curthread->id] = NULL;
+        thread_queue_enqueue(zombies, curthread);
+    } else if (curthread->join_id == -1) {
+        curthread->retval = retval;
     } else {
-        thread_wake(t->join_id);
-        t->retval = retval;
+        thread_wake(threads[curthread->join_id]);
+        curthread->retval = retval;
     }
     thread_switch(ZMB);
 }

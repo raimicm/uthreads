@@ -1,24 +1,25 @@
-#include "queue.h"
+#include "thread_queue.h"
+#include "uthread.h"
 #include <stdlib.h>
 
-// Queue Implementation
+// Thread Queue Implementation
 
-struct queue {
-    int *arr;
+struct thread_queue {
+    struct thread **arr;
     int capacity;
     int head;
     int tail;
 };
 
-queue queue_create(int capacity) {
+thread_queue thread_queue_create(int capacity) {
     if (capacity < 2)
         return NULL;
 
-    queue q = malloc(sizeof(queue));
+    thread_queue q = malloc(sizeof(thread_queue));
     if (q == NULL)
         return NULL;
     
-    q->arr = (int*) malloc(capacity * sizeof(int));
+    q->arr = (struct thread**) malloc(capacity * sizeof(struct thread*));
     if (q->arr == NULL) {
         free(q);
         return NULL;
@@ -30,7 +31,7 @@ queue queue_create(int capacity) {
     return q;
 }
 
-void queue_destroy(queue q) {
+void thread_queue_destroy(thread_queue q) {
     if (q == NULL)
         return;
     
@@ -38,72 +39,67 @@ void queue_destroy(queue q) {
     free(q);
 }
 
-int queue_enqueue(queue q, int val) {
-    if (queue_size(q) == q->capacity)
+int thread_queue_enqueue(thread_queue q, struct thread *thread) {
+    if (thread_queue_size(q) == q->capacity)
         return -1; // queue is full
     
-    if (queue_size(q) == 0) {
+    if (thread_queue_size(q) == 0) {
         q->head = 0;
         q->tail = 0;
     } else {
         q->tail = (q->tail+ 1) % q->capacity;
     }
     
-    q->arr[q->tail] = val;
+    q->arr[q->tail] = thread;
     return 0;
 }
 
-int queue_dequeue(queue q) {
-    if (queue_size(q) == 0)
-        return -1; // queue is empty
+struct thread* thread_queue_dequeue(thread_queue q) {
+    if (thread_queue_size(q) == 0)
+        return NULL; // queue is empty
 
-    int result = q->arr[q->head];
+    struct thread *next = q->arr[q->head];
 
-    if (queue_size(q) == 1) {
+    if (thread_queue_size(q) == 1) {
         q->head = -1;
         q->tail = 0;
     } else {
         q->head = (q->head + 1) % q->capacity;
     }
 
-    return result;
+    return next;
 }
 
-int queue_peek(queue q) {
-    if (queue_size(q) == 0)
-        return -1; // queue is empty
+struct thread* thread_queue_peek(thread_queue q) {
+    if (thread_queue_size(q) == 0)
+        return NULL; // queue is empty
     
     return q->arr[q->head];
 }
 
-int queue_size(queue q) {
+int thread_queue_size(thread_queue q) {
     if (q->head == -1) 
         return 0;
     return (q->tail - q->head + q->capacity) % q->capacity + 1;
 }
 
-// Priority Queue Implementation
+// Thread Priority Queue Implementation
 
-struct data {
-    int val;
-    int priority;
-};
-
-struct priority_queue {
-    struct data *arr;
+struct thread_pqueue {
+    struct thread **arr;
     int capacity;
     int size;
 };
 
-priority_queue priority_queue_create(int capacity) {
+thread_pqueue thread_pqueue_create(int capacity) {
     if (capacity < 2)
         return NULL;
 
-    priority_queue pq = malloc(sizeof(priority_queue));
+    thread_pqueue pq = malloc(sizeof(thread_pqueue));
     if (pq == NULL)
         return NULL;
     
-    pq->arr = (struct data*) malloc(capacity * sizeof(struct data));
+    pq->arr = (struct thread**) malloc(capacity * sizeof(struct thread*));
     if (pq->arr == NULL) {
         free(pq);
         return NULL;
@@ -114,7 +110,7 @@ priority_queue priority_queue_create(int capacity) {
     return pq;
 }
 
-void priority_queue_destroy(priority_queue pq) {
+void thread_pqueue_destroy(thread_pqueue pq) {
     if (pq == NULL)
         return;
     
@@ -134,17 +130,17 @@ static inline int parent(int idx) {
     return (idx - 1) / 2;
 }
 
-static inline void swap_indeces(priority_queue pq, int idx1, int idx2) {
-    struct data temp = pq->arr[idx1];
+static inline void swap_indeces(thread_pqueue pq, int idx1, int idx2) {
+    struct thread* temp = pq->arr[idx1];
     pq->arr[idx1] = pq->arr[idx2];
     pq->arr[idx2] = temp;
 }
 
-static void heapify_up(priority_queue pq) {
+static void heapify_up(thread_pqueue pq) {
     int idx = pq->size - 1;
     while (idx > 0) {
         int parent_idx = parent(idx);
-        if (pq->arr[parent_idx].priority >= pq->arr[idx].priority)
+        if (pq->arr[parent_idx]->priority >= pq->arr[idx]->priority)
             break;
 
         swap_indeces(pq, idx, parent_idx);
@@ -152,16 +148,16 @@ static void heapify_up(priority_queue pq) {
     }
 }
 
-static void heapify_down(priority_queue pq, int idx) {
+static void heapify_down(thread_pqueue pq, int idx) {
     int largest = idx;
     int l = left_child(idx);
     int r = right_child(idx);
     
-    if (l < pq->size && pq->arr[l].priority > pq->arr[largest].priority) {
+    if (l < pq->size && pq->arr[l]->priority > pq->arr[largest]->priority) {
         largest = l;
     }
     
-    if (r < pq->size && pq->arr[r].priority > pq->arr[largest].priority) {
+    if (r < pq->size && pq->arr[r]->priority > pq->arr[largest]->priority) {
         largest = r;
     }
     
@@ -171,12 +167,11 @@ static void heapify_down(priority_queue pq, int idx) {
     }
 }
 
-int priority_queue_enqueue(priority_queue pq, int val, int priority) {
+int thread_pqueue_enqueue(thread_pqueue pq, struct thread *thread) {
     if (pq->size == pq->capacity)
-        return -1; // priority queue is full
+        return -1; // queue is full
     
-    pq->arr[pq->size].val = val;
-    pq->arr[pq->size].priority = priority;
+    pq->arr[pq->size] = thread;
     pq->size++;
 
     heapify_up(pq);
@@ -184,25 +179,25 @@ int priority_queue_enqueue(priority_queue pq, int val, int priority) {
     return 0;
 }
 
-int priority_queue_dequeue(priority_queue pq) {
+struct thread* thread_pqueue_dequeue(thread_pqueue pq) {
     if (pq->size == 0)
-        return -1; // priority queue is empty
+        return NULL; // queue is empty
     
-    int result = pq->arr[0].val;
+    struct thread* next = pq->arr[0];
     pq->arr[0] = pq->arr[--pq->size];
 
     heapify_down(pq, 0);
 
-    return result;
+    return next;
 }
 
-int priority_queue_peek(priority_queue pq) {
+struct thread* thread_pqueue_peek(thread_pqueue pq) {
     if (pq->size == 0)
-        return -1; // priority_queue is empty
+        return NULL; // queue is empty
     
-    return pq->arr[0].val;
+    return pq->arr[0];
 }
 
-int priority_queue_size(priority_queue pq) {
+int thread_pqueue_size(thread_pqueue pq) {
     return pq->size;
 }

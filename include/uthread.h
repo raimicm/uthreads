@@ -31,6 +31,25 @@ typedef enum {
     MLFQ  // Multi-Level Feedback Queue
 } sched_policy;
 
+typedef enum {
+    RDY, // Ready
+    RUN, // Running
+    SLP, // Sleeping
+    ZMB  // Zombie 
+} thread_state;
+
+struct thread {
+    uthread id;
+    void* stack_end;
+    void* sp;
+    void* (*func)(void*);
+    void* args;
+    void* retval;
+    thread_state state;
+    int priority;
+    uthread join_id;
+};
+
 /* 
  * Inializes uthreads and sets uthread settings. The user should call this
  * function before creating a uthread to set the scheduling policy and stack
