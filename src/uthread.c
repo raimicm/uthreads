@@ -9,8 +9,25 @@
 
 #define UTHREAD_DETACHED -2
 
+typedef enum {
+    RDY, // Ready
+    RUN, // Running
+    SLP, // Sleeping
+    ZMB  // Zombie 
+} thread_state;
+
+struct thread {
+    void* stack_end;
+    void* sp;
+    void* (*func)(void*);
+    void* args;
+    void* retval;
+    thread_state state;
+    uthread join_id;
+};
+
 bool initialized = false;
-sched_policy scheduling_policy = FIFO;
+sched_policy scheduling_policy = DEFAULT_SCHEDULING_POLICY;
 size_t stack_size = DEFAULT_STACK_SIZE;
 
 struct thread *threads[MAX_THREADS + 1];
@@ -170,6 +187,8 @@ int uthread_create(uthread *thread, void* (*func)(void*), void *args) {
         return -1; // too many threads
 
     struct thread *t = thread_create(func, args);
+    if (t == NULL)
+        return -1; // out of memory
 
     // add to threads array
     while (threads[last_id] != NULL) {
