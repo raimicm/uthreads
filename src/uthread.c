@@ -13,7 +13,7 @@ bool initialized = false;
 sched_policy scheduling_policy = DEFAULT_SCHEDULING_POLICY;
 size_t stack_size = DEFAULT_STACK_SIZE;
 
-struct thread *threads[MAX_THREADS + 1];
+struct thread *threads[MAX_THREADS];
 unsigned last_id = 0;
 unsigned thread_count = 0;
 
@@ -22,6 +22,7 @@ thread_pqueue ps_runqueue;
 thread_queue zombies;
 
 struct thread *curthread;
+struct thread *reaper_thread;
 
 void thread_execute() {
     // call func(args)
@@ -57,25 +58,30 @@ static void* thread_setup_stack(void *stack_bottom) {
 static void thread_switch(thread_state state) {
     assert(state != RUN);
     assert(curthread->state == RUN);
-    struct thread* oldthread = curthread;
-
+    struct thread *oldthread = curthread;
+    struct thread *newthread = NULL;
+    
     switch (scheduling_policy) {
         case FIFO:
-            curthread = thread_queue_dequeue(fifo_runqueue);
-            assert(curthread != NULL);
-            curthread->state = RUN;
+            newthread = thread_queue_dequeue(fifo_runqueue);
+            if (newthread == NULL)
+                return; // runqueue is empty
+            newthread->state = RUN;
+            curthread = newthread;
 
             if (state == RDY)
                thread_queue_enqueue(fifo_runqueue, oldthread);
             oldthread->state = state;
             break;
         case PS:
-            curthread = thread_pqueue_dequeue(ps_runqueue);
-            assert(curthread != NULL);
-            curthread->state = RUN;
+            newthread = thread_pqueue_dequeue(ps_runqueue);
+            if (newthread == NULL)
+                return; // runqueue is empty
+            newthread->state = RUN;
+            curthread = newthread;
 
             if (state == RDY)
-                thread_pqueue_enqueue(ps_runqueue, oldthread);
+               thread_pqueue_enqueue(ps_runqueue, oldthread);
             oldthread->state = state;
             break;
         default:
@@ -148,7 +154,7 @@ void* thread_reaper(void *args) {
             struct thread* t = thread_queue_dequeue(zombies);
             thread_destroy(t);
         }
-        thread_switch(RDY);
+        thread_switch(SLP);
     }
     return NULL;
 }
@@ -185,11 +191,7 @@ void uthread_init(sched_policy policy, size_t stack_sz) {
     threads[0] = main_thread;
     thread_count++;
 
-    struct thread *reaper_thread = thread_create(MAX_THREADS, thread_reaper, NULL, MIN_PRIORITY);
-    threads[MAX_THREADS] = reaper_thread;
-    thread_count++;
-
-    thread_wake(reaper_thread); // add reaper thread to runqueue
+    reaper_thread = thread_create(MAX_THREADS, thread_reaper, NULL, MAX_PRIORITY);
 }
 
 int uthread_create(uthread *thread, void* (*func)(void*), void *args, int priority) {
@@ -260,8 +262,9 @@ void uthread_exit(void *retval) {
         exit(0); // terminate process if main thread calls uthread_exit
 
     if (curthread->join_id == UTHREAD_DETACHED) {
-        threads[curthread->id] = NULL;
         thread_queue_enqueue(zombies, curthread);
+        if (reaper_thread->state == SLP)
+            thread_wake(reaper_thread); // add reaper to runqueue to clean up zombie
     } else if (curthread->join_id == -1) {
         curthread->retval = retval;
     } else {
