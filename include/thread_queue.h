@@ -1,7 +1,7 @@
 #ifndef THREADQUEUE_H 
 #define THREADQUEUE_H 
 
-#include "uthread.h"
+#include "thread.h"
 
 // Thread Queue
 

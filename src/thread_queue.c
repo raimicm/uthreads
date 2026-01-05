@@ -1,5 +1,4 @@
 #include "thread_queue.h"
-#include "uthread.h"
 #include <stdlib.h>
 
 // Thread Queue Implementation

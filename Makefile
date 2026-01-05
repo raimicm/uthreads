@@ -33,13 +33,13 @@ build:
 lib/libuthreads.a: build/uthread.o build/context_switch.o build/thread_queue.o | lib build
 	$(AR) $(ARFLAGS) $@ $^
 
-build/uthread.o: src/uthread.c include/uthread.h | build
+build/uthread.o: src/uthread.c include/uthread.h include/thread.h | build
 	$(CC) $(CFLAGS) -c $< -o $@
 
 build/context_switch.o: src/context_switch.S include/context_switch.h | build
 	$(CC) $(CFLAGS) -c $< -o $@
 
-build/thread_queue.o: src/thread_queue.c include/thread_queue.h | build
+build/thread_queue.o: src/thread_queue.c include/thread_queue.h include/thread.h | build
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:

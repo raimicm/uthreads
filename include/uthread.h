@@ -1,17 +1,7 @@
 #ifndef UTHREAD_H 
 #define UTHREAD_H    
 
-/*
- * User-level thread library.
- *
- * The following scheduling policies are available:
- *   1. FIFO
- *   2. Priority
- *   3. Round Robin
- *   4. Complemtely Fair Scheduler
- *   5. Multi-Level Feedback Queue
- */
-
+#include "thread.h"
 #include <stdlib.h>
 #include <stdbool.h>
 
@@ -21,34 +11,10 @@
 #define MAX_PRIORITY 20
 #define MIN_PRIORITY -20
 
-typedef int uthread;
-
 typedef enum {
     FIFO, // First-In-First-Out
-    PS,    // Priority Scheduling 
-    RR,   // Round Robin
-    CFS,   // Completely Fair Scheduler
-    MLFQ  // Multi-Level Feedback Queue
+    PS    // Priority Scheduling 
 } sched_policy;
-
-typedef enum {
-    RDY, // Ready
-    RUN, // Running
-    SLP, // Sleeping
-    ZMB  // Zombie 
-} thread_state;
-
-struct thread {
-    uthread id;
-    void* stack_end;
-    void* sp;
-    void* (*func)(void*);
-    void* args;
-    void* retval;
-    thread_state state;
-    int priority;
-    uthread join_id;
-};
 
 /* 
  * Inializes uthreads and sets uthread settings. The user should call this
