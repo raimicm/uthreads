@@ -234,7 +234,7 @@ int uthread_join(uthread utid, void **retval) {
 
     struct thread *t = threads[utid];
     if (t == NULL)
-        return -1; // invalid id
+        return -1; // thread does not exist
 
     if (t->join_id == UTHREAD_DETACHED || t->join_id >= 0)
         return -1; // thread is detached or already marked to join
@@ -280,7 +280,7 @@ int uthread_detach(uthread utid) {
 
     struct thread *t = threads[utid];
     if (t == NULL)
-        return -1; // invalid id
+        return -1; // thread does not exist
 
     if (t->join_id != -1)
         return -1; // thread is already detached or marked to join
